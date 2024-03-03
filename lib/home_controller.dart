@@ -3,10 +3,17 @@ import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:math';
 
-import 'package:get/route_manager.dart';
-import 'package:get/state_manager.dart';
+import 'package:assets_audio_player/assets_audio_player.dart';
+import 'package:get/get.dart';
+
+import 'package:musical_tiles/local_storage.dart';
 
 enum GameState { playing, stopped }
+
+int _initialMovingDuration = 40;
+
+// time increment gap ( in seconds )
+const int _incrementTimeGap = 20;
 
 class HomeController extends GetxController {
   // RxSet<Tuple> selectedSet = RxSet();
@@ -15,12 +22,11 @@ class HomeController extends GetxController {
   RxInt timeCountValue = 0.obs;
 
   RxSet<String> selectedBoxes = RxSet();
-  Duration _movingDuration = const Duration(milliseconds: 10);
+  // minimum moving duration ( in milliseconds )
+  Duration _movingDuration = Duration(milliseconds: _initialMovingDuration);
 
   // minimum duration in milliseconds
   final int _minimumDurationAllwoed = 5;
-  // time increment gap ( in seconds )
-  static const int _incrementTimeGap = 10;
 
   final List<Block> _masterPointsList = [];
   final Map<String, int> _blockIdByPositionMap = {};
@@ -30,15 +36,16 @@ class HomeController extends GetxController {
 
   int _horizontalDivision = 4;
   // set vertical division
-  final int _verticalDivision = 100;
+  final int _verticalDivision = 30;
 
-  int get _division => _horizontalDivision;
   set setHorizontalDivision(int value) => _horizontalDivision = value;
 
   final _random = Random();
-  int get horizontalCount => _division;
+  int get horizontalCount => _horizontalDivision;
 
-  int get _verticalBoxHeightCount => 15;
+  int _verticalC = 15;
+  set setVerticalBoxCount(int count) => _verticalC = count;
+  int get _verticalBoxHeightCount => _verticalC;
 
 // -------------------- DIMENSIONS & COUNT --------------------------------
   double get baseWidthDimention => Get.width / horizontalCount;
@@ -52,8 +59,11 @@ class HomeController extends GetxController {
   int get totalYboxes => _verticalDivision;
 // ------------------------------------------------------------------------
 
+  final _gameOverAudio = 'assets/paper_sound_2.mp3';
+  final _piano = 'assets/paper_sound.mp3';
+
   int getRandomNumber(int min, int max) => min + _random.nextInt(max - min);
-  int get getRandomXposition => getRandomNumber(1, _division + 1);
+  int get getRandomXposition => getRandomNumber(0, _horizontalDivision);
 
   _stopGame() {
     gameState.value = GameState.stopped;
@@ -69,7 +79,7 @@ class HomeController extends GetxController {
   _resetGame() {
     scoreCount.value = 0;
     selectedBoxes.clear();
-    _movingDuration = const Duration(milliseconds: 50);
+    _movingDuration = Duration(milliseconds: _initialMovingDuration);
     _blockIdByPositionMap.clear();
     _masterPointsList.clear();
     selectedIds.clear();
@@ -98,13 +108,14 @@ class HomeController extends GetxController {
     return false;
   }
 
-  hidePosition(Position position) {
+  hidePosition(Position position) async {
     var blockId = _blockIdByPositionMap[position.toString()];
     if (blockId != null) {
       selectedIds.add(blockId);
       scoreCount.value += 1;
+    
     } else {
-      _stopGame();
+      _callGameOver();
     }
   }
 
@@ -113,13 +124,10 @@ class HomeController extends GetxController {
 
     Set<String> tempBlockSet = selectedBoxes.toSet();
     for (var i = 0; i < _verticalBoxHeightCount; i++) {
-      for (var j = 0; j < horizontalCount; j++) {
-        final position =
-            Position(x: mp.position.x - j, y: mp.position.y - i - 1);
+      final position = Position(x: mp.position.x, y: mp.position.y - i - 1);
 
-        _blockIdByPositionMap[position.toString()] = mp.id;
-        tempBlockSet.add(position.toString());
-      }
+      _blockIdByPositionMap[position.toString()] = mp.id;
+      tempBlockSet.add(position.toString());
     }
 
     // var now = DateTime.now();
@@ -129,6 +137,8 @@ class HomeController extends GetxController {
   }
 
   _startGame() {
+    AssetsAudioPlayer.playAndForget(Audio(_piano));
+
     gameState.value = GameState.playing;
     _startTiles();
     _durationTimer?.cancel();
@@ -142,18 +152,29 @@ class HomeController extends GetxController {
     });
   }
 
+  _callGameOver() {
+    AssetsAudioPlayer.playAndForget(Audio(_gameOverAudio));
+
+    _stopGame();
+    final lc = Get.find<LocalStorage>();
+    // update score if new score is greater then previous
+    int previousScore = lc.getScore(_horizontalDivision) ?? 0;
+    lc.setScore(
+        tileCount: _horizontalDivision,
+        score: max(previousScore, scoreCount.value));
+  }
+
   _startTiles() {
     _innerLoopTimer?.cancel();
     _innerLoopTimer = Timer.periodic(_movingDuration, (timer) async {
+      var now = DateTime.now();
       _blockIdByPositionMap.clear();
-      // var now = DateTime.now();
       selectedBoxes.clear();
       // dev.log(
       //     '--- > time taken x : ${DateTime.now().difference(now).inMilliseconds} ');
       if (_masterPointsList.isEmpty) {
-        _masterPointsList.add(Block(
-            position: Position(x: getRandomXposition * (horizontalCount), y: 0),
-            id: 0));
+        _masterPointsList
+            .add(Block(position: Position(x: getRandomXposition, y: 0), id: 0));
       }
 
       for (var i = 0; i < _masterPointsList.length; i++) {
@@ -169,19 +190,19 @@ class HomeController extends GetxController {
         //* --- add block
 
         _masterPointsList.add(Block(
-            position: Position(x: getRandomXposition * (horizontalCount), y: 0),
+            position: Position(x: getRandomXposition, y: 0),
             id: _masterPointsList.last.id + 1));
       }
       if (_masterPointsList[0].position.y >
           _verticalBoxHeightCount + totalYboxes) {
         //* --- Remove block
         if (!selectedIds.contains(_masterPointsList.first.id)) {
-          _stopGame();
+          _callGameOver();
         }
         _masterPointsList.removeAt(0);
       }
-      // dev.log(
-      //     '--- > time taken : ${DateTime.now().difference(now).inMilliseconds} ');
+      dev.log(
+          '--- > time taken : ${DateTime.now().difference(now).inMilliseconds} ');
     });
   }
 }

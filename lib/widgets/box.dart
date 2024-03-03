@@ -22,7 +22,12 @@ class BoxWidget extends StatelessWidget {
         height: height,
         width: width,
         decoration: BoxDecoration(
-            color: isSelected ? isHidden ? Colors.pink.shade400 : Colors.black54 : Colors.white,
-            border: Border.all(width: 0.5, color: Colors.grey.shade300)));
+          color: isSelected
+              ? isHidden
+                  ? Colors.pink.shade300
+                  : Colors.black54
+              : Colors.white,
+          // border: Border.all(width: 0.5, color: Colors.grey.shade300)
+        ));
   }
 }
